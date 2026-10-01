@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alertes campus</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #1a1d24; --text: #e8e8ea; --muted: #9aa0ab;
+    --n1: #e8b339; --n2: #e8484f; --n0: #3fae59; --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif;
+    padding: 16px; padding-bottom: 80px;
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+  .setup {
+    background: var(--card); border-radius: 12px; padding: 14px; margin-bottom: 16px;
+  }
+  .setup input {
+    width: 100%; padding: 10px; margin-top: 6px; border-radius: 8px;
+    border: 1px solid #333; background: #111; color: var(--text); font-size: 0.95rem;
+  }
+  .setup label { font-size: 0.8rem; color: var(--muted); }
+  .setup button {
+    margin-top: 10px; width: 100%; padding: 10px; border-radius: 8px; border: none;
+    background: var(--accent); color: white; font-weight: 600; font-size: 0.95rem;
+  }
+  .filtres { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filtres button {
+    padding: 6px 12px; border-radius: 999px; border: 1px solid #333;
+    background: #15171d; color: var(--text); font-size: 0.8rem;
+  }
+  .filtres button.actif { background: var(--accent); border-color: var(--accent); }
+  .carte {
+    background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 12px;
+    border-left: 5px solid var(--n1);
+  }
+  .carte.n2 { border-left-color: var(--n2); }
+  .carte.n0 { border-left-color: var(--n0); }
+  .ligne1 { display: flex; justify-content: space-between; align-items: baseline; }
+  .zone { font-weight: 700; font-size: 1.05rem; }
+  .heure { color: var(--muted); font-size: 0.78rem; }
+  .niveau-tag {
+    display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 700; background: var(--n1); color: #1a1500;
+  }
+  .carte.n2 .niveau-tag { background: var(--n2); color: #2a0000; }
+  .interp { margin: 8px 0; font-size: 0.9rem; color: var(--text); }
+  .meta { display: flex; gap: 14px; color: var(--muted); font-size: 0.78rem; margin-bottom: 10px; }
+  .actions { display: flex; gap: 8px; }
+  .actions button {
+    flex: 1; padding: 9px; border-radius: 8px; border: none; font-size: 0.85rem; font-weight: 600;
+  }
+  .btn-valider { background: #1f3a24; color: #8fe39f; }
+  .btn-escalade { background: #3a1f1f; color: #ff9b9b; }
+  .btn-ignorer { background: #22242b; color: var(--muted); }
+  .vide { text-align: center; color: var(--muted); margin-top: 40px; font-size: 0.9rem; }
+  .statut-badge {
+    font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; background: #22242b; color: var(--muted);
+  }
+  a.extrait { color: var(--accent); font-size: 0.82rem; }
+  #erreur { color: #ff9b9b; font-size: 0.82rem; margin-top: 8px; display: none; }
+</style>
+</head>
+<body>
+
+<h1>Alertes campus</h1>
+<div class="sub">Tableau de bord des agents — rafraîchi automatiquement</div>
+
+<div class="setup" id="setup">
+  <label>Adresse du backend (ex. https://tonapp.onrender.com)</label>
+  <input id="apiBase" placeholder="https://...">
+  <label>Clé agent</label>
+  <input id="apiKey" placeholder="clé fournie par l'administrateur" type="password">
+  <button onclick="enregistrerConfig()">Se connecter</button>
+  <div id="erreur"></div>
+</div>
+
+<div class="filtres" id="filtres" style="display:none">
+  <button class="actif" data-f="">Tout</button>
+  <button data-f="nouveau">Nouveau</button>
+  <button data-f="valide">Validé</button>
+  <button data-f="escalade">Escaladé</button>
+  <button data-f="ignore">Ignoré</button>
+</div>
+
+<div id="liste"></div>
+
+<script>
+let API_BASE = localStorage.getItem('api_base') || '';
+let API_KEY = localStorage.getItem('api_key') || '';
+let filtreActuel = '';
+
+document.getElementById('apiBase').value = API_BASE;
+document.getElementById('apiKey').value = API_KEY;
+if (API_BASE && API_KEY) demarrer();
+
+function enregistrerConfig() {
+  API_BASE = document.getElementById('apiBase').value.replace(/\/$/, '');
+  API_KEY = document.getElementById('apiKey').value;
+  localStorage.setItem('api_base', API_BASE);
+  localStorage.setItem('api_key', API_KEY);
+  demarrer();
+}
+
+function demarrer() {
+  document.getElementById('filtres').style.display = 'flex';
+  charger();
+  setInterval(charger, 5000);
+}
+
+document.getElementById('filtres').addEventListener('click', (e) => {
+  if (e.target.tagName !== 'BUTTON') return;
+  document.querySelectorAll('#filtres button').forEach(b => b.classList.remove('actif'));
+  e.target.classList.add('actif');
+  filtreActuel = e.target.dataset.f;
+  charger();
+});
+
+async function charger() {
+  const err = document.getElementById('erreur');
+  try {
+    const url = API_BASE + '/alertes' + (filtreActuel ? ('?statut=' + filtreActuel) : '');
+    const res = await fetch(url, { headers: { 'x-api-key': API_KEY } });
+    if (!res.ok) throw new Error('Réponse ' + res.status);
+    const alertes = await res.json();
+    err.style.display = 'none';
+    afficher(alertes);
+  } catch (e) {
+    err.textContent = 'Connexion impossible : ' + e.message;
+    err.style.display = 'block';
+  }
+}
+
+function afficher(alertes) {
+  const conteneur = document.getElementById('liste');
+  if (!alertes.length) {
+    conteneur.innerHTML = '<div class="vide">Aucune alerte pour le moment.</div>';
+    return;
+  }
+  conteneur.innerHTML = alertes.map(a => {
+    const cls = a.niveau >= 2 ? 'n2' : (a.niveau === 1 ? 'n1' : 'n0');
+    const heure = new Date(a.horodatage * 1000).toLocaleTimeString('fr-FR');
+    const extrait = a.extrait_url ? `<div><a class="extrait" href="${a.extrait_url}" target="_blank">Voir l'extrait vidéo</a></div>` : '';
+    return `
+      <div class="carte ${cls}">
+        <div class="ligne1">
+          <span class="zone">${escapeHtml(a.zone)}</span>
+          <span class="heure">${heure}</span>
+        </div>
+        <span class="niveau-tag">Niveau ${a.niveau}</span>
+        <span class="statut-badge">${a.statut}</span>
+        <div class="interp">${escapeHtml(a.interpretation)}</div>
+        <div class="meta">
+          ${a.personnes_max != null ? `<span>${a.personnes_max} personnes max</span>` : ''}
+          ${a.vitesse_moyenne != null ? `<span>vitesse ${a.vitesse_moyenne}</span>` : ''}
+        </div>
+        ${extrait}
+        <div class="actions">
+          <button class="btn-valider" onclick="majStatut(${a.id}, 'valide')">Valider</button>
+          <button class="btn-escalade" onclick="majStatut(${a.id}, 'escalade')">Escalader</button>
+          <button class="btn-ignorer" onclick="majStatut(${a.id}, 'ignore')">Ignorer</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function majStatut(id, statut) {
+  try {
+    await fetch(API_BASE + '/alertes/' + id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      body: JSON.stringify({ statut })
+    });
+    charger();
+  } catch (e) {
+    alert('Échec de la mise à jour : ' + e.message);
+  }
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
